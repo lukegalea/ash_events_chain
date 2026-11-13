@@ -8,12 +8,14 @@ config :ash_events_chain,
   ecto_repos: [AshEvents.Chain.TestRepo],
   ash_domains: [AshEvents.Chain.Test.Domain]
 
+# Host and credentials come from DB_* rather than libpq's PG* names: the shared CI
+# workflow sets PGHOST to a hostname that only resolves inside a job container.
 config :ash_events_chain, AshEvents.Chain.TestRepo,
   database: "ash_events_chain_test#{System.get_env("MIX_TEST_PARTITION")}",
-  username: System.get_env("PGUSER", "postgres"),
-  password: System.get_env("PGPASSWORD", "postgres"),
-  hostname: System.get_env("PGHOST", "localhost"),
-  port: String.to_integer(System.get_env("PGPORT", "5432")),
+  username: System.get_env("DB_USER", "postgres"),
+  password: System.get_env("DB_PASSWORD", "postgres"),
+  hostname: System.get_env("DB_HOST", "localhost"),
+  port: String.to_integer(System.get_env("DB_PORT", "5432")),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
 
