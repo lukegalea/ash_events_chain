@@ -179,6 +179,23 @@ defmodule AshEvents.Chain.ChainTest do
     end
   end
 
+  describe "the session a row meets" do
+    # Postgres renders a timestamp in the session's DateStyle and a timestamptz or a
+    # tstzrange in its TimeZone. The chain function and verify/2 each pin those.
+    test "does not change its digest", ctx do
+      insert_event!(ctx.org)
+
+      TestRepo.query!("SET LOCAL TimeZone TO 'Pacific/Chatham'")
+      TestRepo.query!("SET LOCAL DateStyle TO 'SQL, DMY'")
+      insert_event!(ctx.org)
+
+      TestRepo.query!("SET LOCAL TimeZone TO 'America/St_Johns'")
+      TestRepo.query!("SET LOCAL DateStyle TO 'German'")
+
+      assert %{checked: 2, findings: []} = Chain.verify(EventLog, ctx.org)
+    end
+  end
+
   describe "the trigger prevents" do
     test "UPDATE", ctx do
       note!(ctx.org)

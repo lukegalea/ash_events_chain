@@ -26,6 +26,14 @@ defmodule AshEvents.Chain.SQL do
       column added this way does not change the digest of a row where it is
       `NULL`, so rows written before the column existed still verify.
 
+  How a value renders as text depends on the session: a `tstzrange` or
+  `timestamptz` in its `TimeZone`, a timestamp in its `DateStyle`, an interval in
+  its `IntervalStyle`, a float in its `extra_float_digits`. The chain function sets
+  all four (`rendering_settings/0`) and `AshEvents.Chain.verify/2` sets the same
+  four for its transaction, so a row hashes the same whatever session wrote it or
+  reads it back. The values are Postgres's defaults with `TimeZone` at UTC, so a
+  row written under those settings before they were pinned still verifies.
+
   ## Identifiers
 
   Every table, column and function name in this SQL comes from the resource
@@ -41,6 +49,13 @@ defmodule AshEvents.Chain.SQL do
 
   @hot_floor_days 90
   @purge_floor_days 400
+
+  @rendering_settings [
+    {"TimeZone", "UTC"},
+    {"DateStyle", "ISO, MDY"},
+    {"IntervalStyle", "postgres"},
+    {"extra_float_digits", "1"}
+  ]
 
   @typedoc "A digest column with its `NULL` rendering."
   @type digest_column :: {atom(), :empty_if_nil | :omit_nil}
@@ -94,6 +109,20 @@ defmodule AshEvents.Chain.SQL do
   end
 
   @doc """
+  The session settings the digest is rendered under, as `{name, value}` pairs.
+  """
+  @spec rendering_settings() :: [{String.t(), String.t()}]
+  def rendering_settings, do: @rendering_settings
+
+  @doc """
+  `SET LOCAL` statements for `rendering_settings/0`, one per setting, for a
+  transaction that recomputes digests.
+  """
+  @spec set_local_rendering() :: [String.t()]
+  def set_local_rendering,
+    do: Enum.map(@rendering_settings, fn {name, value} -> "SET LOCAL #{name} TO '#{value}'" end)
+
+  @doc """
   The `BEFORE INSERT` chain function: sets the partition from the metadata when the
   log takes it from there, reads the tail of the row's chain, and sets
   `previous_hash` and `hash`.
@@ -131,9 +160,14 @@ defmodule AshEvents.Chain.SQL do
 
       RETURN NEW;
     END;
-    $fn$ LANGUAGE plpgsql;
+    $fn$ LANGUAGE plpgsql
+    #{function_settings()};
     """
   end
+
+  defp function_settings,
+    do:
+      Enum.map_join(@rendering_settings, "\n", fn {name, value} -> "SET #{name} TO '#{value}'" end)
 
   defp partition_assignment(%{partition_metadata_key: nil}), do: ""
 

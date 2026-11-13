@@ -1,0 +1,263 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"uuid_generate_v7()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "record_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "version",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "metadata",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "data",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "changed_attributes",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "occurred_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "resource",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "action",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "action_type",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "user_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": true,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "sequence",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "organization_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": true,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "previous_hash",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": true,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "hash",
+      "type": "text"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "organization_id",
+        "sequence"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "organization_id"
+        },
+        {
+          "type": "atom",
+          "value": "sequence"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "audit_events_chain_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    }
+  ],
+  "custom_statements": [
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP FUNCTION IF EXISTS audit_events_chain_fn();",
+      "global?": false,
+      "name": "audit_events_chain_function",
+      "up": "CREATE OR REPLACE FUNCTION audit_events_chain_fn() RETURNS trigger AS $fn$\nDECLARE\n  prev text;\nBEGIN\n  -- The partition is taken from the event's metadata rather than from the caller,\n  -- so the column and the metadata cannot disagree.\n  NEW.organization_id := NULLIF(NEW.metadata->>'organization_id', '')::uuid;\n\n  -- The tail of the row's chain, read backwards off the chain index. The two\n  -- cases are written apart because `IS NOT DISTINCT FROM` cannot use the index,\n  -- and the index's own order lets the planner see that an `IS NULL` match is\n  -- already ordered by sequence.\n  IF NEW.organization_id IS NULL THEN\n    SELECT hash INTO prev\n    FROM audit_events\n    WHERE organization_id IS NULL\n    ORDER BY organization_id DESC, sequence DESC\n    LIMIT 1;\n  ELSE\n    SELECT hash INTO prev\n    FROM audit_events\n    WHERE organization_id = NEW.organization_id\n    ORDER BY organization_id DESC, sequence DESC\n    LIMIT 1;\n  END IF;\n\n  NEW.previous_hash := prev;\n  NEW.hash := encode(sha256(convert_to(concat_ws('|',\n      coalesce(prev, ''),\n      coalesce(NEW.sequence::text, ''),\n      coalesce(NEW.id::text, ''),\n      coalesce(NEW.record_id::text, ''),\n      coalesce(NEW.version::text, ''),\n      coalesce(NEW.occurred_at::text, ''),\n      coalesce(NEW.resource::text, ''),\n      coalesce(NEW.action::text, ''),\n      coalesce(NEW.action_type::text, ''),\n      coalesce(NEW.user_id::text, ''),\n      coalesce(NEW.organization_id::text, ''),\n      coalesce(NEW.data::text, ''),\n      coalesce(NEW.changed_attributes::text, ''),\n      coalesce(NEW.metadata::text, '')), 'UTF8')), 'hex');\n\n  RETURN NEW;\nEND;\n$fn$ LANGUAGE plpgsql\nSET TimeZone TO 'UTC'\nSET DateStyle TO 'ISO, MDY'\nSET IntervalStyle TO 'postgres'\nSET extra_float_digits TO '1';\n"
+    },
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP TRIGGER IF EXISTS audit_events_chain ON audit_events;",
+      "global?": false,
+      "name": "audit_events_chain_trigger",
+      "up": "-- audit_events_chain_fn: f3563e4f2868ed6d\nCREATE OR REPLACE TRIGGER audit_events_chain\n  BEFORE INSERT ON audit_events\n  FOR EACH ROW EXECUTE FUNCTION audit_events_chain_fn();\n"
+    },
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP FUNCTION IF EXISTS audit_events_immutable_fn();",
+      "global?": false,
+      "name": "audit_events_immutable_function",
+      "up": "CREATE OR REPLACE FUNCTION audit_events_immutable_fn() RETURNS trigger AS $fn$\nBEGIN\n  -- The one DELETE allowed: retention moving a row out of the hot table. The row\n  -- must be past the hot floor, and an identical copy must already be archived,\n  -- so a row can leave this table only by having arrived there first.\n  IF TG_OP = 'DELETE'\n     AND OLD.occurred_at < now() - interval '90 days'\n     AND EXISTS (\n       SELECT 1 FROM audit_event_archive a\n       WHERE a.id = OLD.id\n         AND (a.sequence, a.organization_id, a.record_id, a.version, a.occurred_at, a.resource, a.action, a.action_type, a.user_id, a.data, a.changed_attributes, a.metadata, a.previous_hash, a.hash) IS NOT DISTINCT FROM (OLD.sequence, OLD.organization_id, OLD.record_id, OLD.version, OLD.occurred_at, OLD.resource, OLD.action, OLD.action_type, OLD.user_id, OLD.data, OLD.changed_attributes, OLD.metadata, OLD.previous_hash, OLD.hash)\n     ) THEN\n    RETURN OLD;\n  END IF;\n\n  RAISE EXCEPTION 'audit_events is append-only; % is not permitted', TG_OP\n    USING ERRCODE = 'restrict_violation',\n          HINT = 'Correct a wrong entry by recording a new one.';\nEND;\n$fn$ LANGUAGE plpgsql;\n"
+    },
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP TRIGGER IF EXISTS audit_events_immutable ON audit_events;",
+      "global?": false,
+      "name": "audit_events_immutable_trigger",
+      "up": "-- audit_events_immutable_fn: 24197accaf00eb44\nCREATE OR REPLACE TRIGGER audit_events_immutable\n  BEFORE UPDATE OR DELETE ON audit_events\n  FOR EACH ROW EXECUTE FUNCTION audit_events_immutable_fn();\n"
+    }
+  ],
+  "has_create_action": true,
+  "hash": "6A57195C7FCDD3287D501B1069613F0BEBD4A73013FD6303B2707A444F1FA118",
+  "identities": [],
+  "multitenancy": {
+    "attribute": "organization_id",
+    "global": true,
+    "strategy": "attribute"
+  },
+  "repo": "Elixir.AshEvents.Chain.TestRepo",
+  "schema": null,
+  "table": "audit_events",
+  "temporal": null
+}
