@@ -73,21 +73,26 @@ defmodule AshEvents.Chain do
     spec = Info.spec!(log)
     {anchor_hash, after_sequence} = anchor(spec, partition)
 
-    %{rows: rows} =
-      case partition do
-        nil ->
-          repo(spec).query!(SQL.verify_query(spec, :null_partition), [
-            anchor_hash,
-            after_sequence
-          ])
+    repo = repo(spec)
 
-        value ->
-          repo(spec).query!(SQL.verify_query(spec, :partition), [
-            Info.dump_partition(spec, value),
-            anchor_hash,
-            after_sequence
-          ])
-      end
+    # The digest is recomputed under the settings the chain function wrote it under
+    # (`SQL.rendering_settings/0`), not this session's.
+    {:ok, %{rows: rows}} =
+      repo.transaction(fn ->
+        Enum.each(SQL.set_local_rendering(), &repo.query!/1)
+
+        case partition do
+          nil ->
+            repo.query!(SQL.verify_query(spec, :null_partition), [anchor_hash, after_sequence])
+
+          value ->
+            repo.query!(SQL.verify_query(spec, :partition), [
+              Info.dump_partition(spec, value),
+              anchor_hash,
+              after_sequence
+            ])
+        end
+      end)
 
     # Rows predating the chain carry no hash. They are ignorable only while they form
     # an unbroken run at the very start: an unchained row after a chained one is the
