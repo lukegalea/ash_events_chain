@@ -121,6 +121,9 @@ defmodule AshEvents.Chain.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
       {:sourceror, "~> 1.7", only: [:dev, :test]},
+      # The Spark tasks the shared CI runs (`spark.formatter`, `spark.cheat_sheets`)
+      # and its `igniter.upgrade` step need it.
+      {:igniter, "~> 0.6", only: [:dev, :test]},
       {:ex_doc, "~> 0.37", only: [:dev], runtime: false},
       {:credo, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
@@ -136,7 +139,9 @@ defmodule AshEvents.Chain.MixProject do
       "test.create": "ash_postgres.create",
       "test.reset": ["test.drop", "test.create", "test.migrate"],
       "test.drop": "ash_postgres.drop",
-      credo: "credo --strict"
+      credo: "credo --strict",
+      "spark.formatter": "spark.formatter --extensions AshEvents.Chain.Extension",
+      "spark.cheat_sheets": "spark.cheat_sheets --extensions AshEvents.Chain.Extension"
     ]
   end
 end
