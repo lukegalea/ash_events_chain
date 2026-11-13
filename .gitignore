@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Luke Galea
+#
+# SPDX-License-Identifier: MIT
+
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+ash_events_chain-*.tar
+/tmp/
+/priv/plts/
+/.elixir_ls/
