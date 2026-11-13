@@ -6,6 +6,6 @@ version = 1
 
 # Generated files that carry no header of their own.
 [[annotations]]
-path = ["mix.lock", "priv/test_repo/migrations/**", "priv/resource_snapshots/**"]
+path = ["mix.lock", "priv/test_repo/migrations/**", "priv/resource_snapshots/**", "documentation/dsls/**"]
 SPDX-FileCopyrightText = "2026 Luke Galea"
 SPDX-License-Identifier = "MIT"
