@@ -166,7 +166,8 @@ defmodule AshEvents.Chain.SQL do
   end
 
   defp function_settings,
-    do: Enum.map_join(@rendering_settings, "\n", fn {name, value} -> "SET #{name} TO '#{value}'" end)
+    do:
+      Enum.map_join(@rendering_settings, "\n", fn {name, value} -> "SET #{name} TO '#{value}'" end)
 
   defp partition_assignment(%{partition_metadata_key: nil}), do: ""
 
