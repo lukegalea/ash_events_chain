@@ -154,6 +154,43 @@ defmodule AshEvents.Chain.ChainTest do
       assert Chain.clean?(results)
     end
 
+    test "verify_all reports a raising chain as an error and verifies the rest", ctx do
+      broken = Ash.UUID.generate()
+      note!(ctx.org)
+      note!(broken)
+
+      verifier = fn log, partition ->
+        if partition == broken, do: raise("the chain could not be read")
+        Chain.verify(log, partition)
+      end
+
+      # By default the exception stops every chain.
+      assert_raise RuntimeError, ~r/could not be read/, fn ->
+        Chain.verify_all(EventLog, verifier: verifier)
+      end
+
+      results = Chain.verify_all(EventLog, verifier: verifier, on_error: :return)
+
+      assert %{error: "the chain could not be read", checked: 0, findings: []} =
+               Enum.find(results, &(&1.partition == broken))
+
+      healthy = Enum.find(results, &(&1.partition == ctx.org))
+      assert %{findings: [], checked: 1} = healthy
+      refute Map.has_key?(healthy, :error)
+
+      refute Chain.clean?(results)
+      assert Chain.clean?([healthy])
+    end
+
+    test "verify_isolated/3 returns a raised verification as an error", ctx do
+      note!(ctx.org)
+
+      assert {:error, "boom"} =
+               Chain.verify_isolated(EventLog, ctx.org, fn _, _ -> raise "boom" end)
+
+      assert {:ok, %{findings: [], checked: 1}} = Chain.verify_isolated(EventLog, ctx.org)
+    end
+
     # The trigger runs on every audited write, so a tail lookup that scans the table
     # makes each write cost as much as the whole log. A log large enough that the
     # planner prefers the index, then one write per branch of the lookup.

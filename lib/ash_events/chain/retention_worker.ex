@@ -24,7 +24,8 @@ defmodule AshEvents.Chain.RetentionWorker do
       config :my_app, MyApp.Audit.RetentionWorker,
         hot_days: 90,
         purge_after_days: nil,
-        batch_size: 10_000
+        batch_size: 10_000,
+        max_batches: 10
 
   ## Options
 
@@ -35,6 +36,9 @@ defmodule AshEvents.Chain.RetentionWorker do
     * `:oban` - options for `use Oban.Worker`. Default
       `[queue: :default, max_attempts: 3, unique: [period: 3600]]`.
     * any `AshEvents.Chain.Retention` option, as a default the environment overrides.
+
+  A backlog larger than `:batch_size` times `:max_batches` drains over several runs; the
+  job's result says how many rows are still eligible (`backlog`).
 
   Idempotent: a second run the same day finds nothing to move. A move that does not
   verify deletes nothing and is recorded as a failed run; the job still succeeds,
@@ -75,7 +79,9 @@ defmodule AshEvents.Chain.RetentionWorker do
 
   @doc """
   Archives, then purges, `log` with `opts`. Returns `{:ok, %{archived: counts, purged:
-  counts}}`, where `counts` are the steps by kind, or `{:error, reason}`.
+  counts, backlog: %{archive: rows, purge: rows}}}`, where `counts` are the steps by
+  kind and `backlog` the rows still eligible afterwards (`Retention.backlog/1`), or
+  `{:error, reason}`.
   """
   @spec run(module(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(log, opts) do
@@ -83,7 +89,12 @@ defmodule AshEvents.Chain.RetentionWorker do
 
     with {:ok, archived} <- Retention.archive(log, opts),
          {:ok, purged} <- Retention.purge(log, opts) do
-      {:ok, %{archived: summary(archived), purged: summary(purged)}}
+      {:ok,
+       %{
+         archived: summary(archived),
+         purged: summary(purged),
+         backlog: %{archive: Retention.backlog(archived), purge: Retention.backlog(purged)}
+       }}
     end
   end
 
