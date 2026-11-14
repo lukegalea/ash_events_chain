@@ -322,7 +322,7 @@ defmodule AshEvents.Chain.Resources do
         attribute :reason, :string do
           public? true
           constraints max_length: 500
-          description "Why a failed step refused."
+          description "Why a failed step refused, or the backlog a verified step left."
         end
 
         create_timestamp :inserted_at

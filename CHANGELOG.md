@@ -8,7 +8,25 @@ SPDX-License-Identifier: MIT
 
 ## Unreleased
 
+### Bug Fixes
+
+- `AshEvents.Chain.Retention.archive/2`: a chain whose verification raises is recorded
+  as a `:failed` run with the error as its reason, and every other chain is still
+  archived. Before, the exception stopped the whole call.
+- `AshEvents.Chain.verify_all/2` with `on_error: :return` verifies every chain even when
+  one raises, returning that chain's result with `error:` set. `clean?/1` is false for
+  such a result. The default, `:raise`, is unchanged.
+
 ### Features
+
+- Retention drains a backlog within a bound: `:max_batches` (default 1, as before) and
+  `:deadline_ms`. The last step of each chain carries what is still eligible as `backlog`
+  in its run's metadata (`Retention.backlog/1`), a verified run that leaves a backlog
+  says so in its `reason`, and each chain emits a
+  `[:ash_events_chain, :retention, :chain]` telemetry event. `RetentionWorker.run/2`
+  returns the backlog.
+- `AshEvents.Chain.verify_isolated/3`, verifying one chain and returning a raised
+  verification as `{:error, message}`.
 
 - `AshEvents.Chain.Resources` macros a host puts on its own resources:
   `{:chained_log, opts}` on an `AshEvents.EventLog` resource, `{:archive, opts}` for

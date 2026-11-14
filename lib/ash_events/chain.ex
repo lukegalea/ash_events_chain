@@ -57,11 +57,12 @@ defmodule AshEvents.Chain do
         }
 
   @type result :: %{
-          partition: term(),
-          anchored_after: integer() | nil,
-          checked: non_neg_integer(),
-          skipped_unchained_prefix: non_neg_integer(),
-          findings: [finding()]
+          required(:partition) => term(),
+          required(:anchored_after) => integer() | nil,
+          required(:checked) => non_neg_integer(),
+          required(:skipped_unchained_prefix) => non_neg_integer(),
+          required(:findings) => [finding()],
+          optional(:error) => String.t()
         }
 
   @doc """
@@ -112,15 +113,63 @@ defmodule AshEvents.Chain do
   @doc """
   Verifies every chain of `log`, hot and archived: one per partition value, plus the
   chain with none.
+
+  ## Options
+
+    * `:on_error` - what a chain whose verification raises does to the others.
+      `:raise` (the default) lets the exception through, so no result is returned.
+      `:return` verifies every other chain and returns a result for that one with
+      `error:` set to the exception's message, `checked: 0` and no findings; such a
+      result is never clean (`clean?/1`).
+    * `:verifier` - the function that verifies one chain, called as
+      `verifier.(log, partition)`. Default `verify/2`.
   """
-  @spec verify_all(module()) :: [result()]
-  def verify_all(log) do
-    log |> partitions() |> Enum.map(&verify(log, &1))
+  @spec verify_all(module(), keyword()) :: [result()]
+  def verify_all(log, opts \\ []) do
+    verifier = Keyword.get(opts, :verifier, &verify/2)
+
+    case Keyword.get(opts, :on_error, :raise) do
+      :raise -> log |> partitions() |> Enum.map(&verifier.(log, &1))
+      :return -> log |> partitions() |> Enum.map(&isolated(verifier, log, &1))
+    end
   end
 
-  @doc "Whether every result in `results` is clean."
+  @doc """
+  Verifies one chain of `log` with `verifier` (default `verify/2`), returning
+  `{:ok, result}`, or `{:error, message}` when the verification raised.
+  """
+  @spec verify_isolated(module(), term(), (module(), term() -> result())) ::
+          {:ok, result()} | {:error, String.t()}
+  def verify_isolated(log, partition, verifier \\ &verify/2) do
+    {:ok, verifier.(log, partition)}
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp isolated(verifier, log, partition) do
+    case verify_isolated(log, partition, verifier) do
+      {:ok, result} ->
+        result
+
+      {:error, message} ->
+        %{
+          partition: partition,
+          anchored_after: nil,
+          checked: 0,
+          skipped_unchained_prefix: 0,
+          findings: [],
+          error: message
+        }
+    end
+  end
+
+  @doc """
+  Whether every result in `results` is clean: no findings, and no verification that
+  raised.
+  """
   @spec clean?([result()]) :: boolean()
-  def clean?(results), do: Enum.all?(results, &(&1.findings == []))
+  def clean?(results),
+    do: Enum.all?(results, &(&1.findings == [] and not Map.has_key?(&1, :error)))
 
   @doc """
   Every partition value present in `log`'s hot table and archive, `nil` first.

@@ -149,6 +149,34 @@ defmodule AshEvents.Chain.RetentionTest do
       assert archived_count(ctx.org) == 0
     end
 
+    test "one chain whose verification raises does not stop another chain's archive", ctx do
+      broken = Ash.UUID.generate()
+
+      for org <- [ctx.org, broken] do
+        for days <- [200, 150], do: event!(org, days)
+        event!(org, 1)
+      end
+
+      verifier = fn log, partition ->
+        if partition == broken, do: raise("the chain could not be read")
+        Chain.verify(log, partition)
+      end
+
+      {:ok, steps} = Retention.archive(EventLog, [verifier: verifier] ++ ctx.as)
+
+      assert {:failed, %ArchiveRun{status: :failed, row_count: 0, reason: reason}} =
+               step_for(steps, broken)
+
+      assert reason =~ "verification raised"
+      assert reason =~ "the chain could not be read"
+      assert hot_count(broken) == 3
+      assert archived_count(broken) == 0
+
+      assert {:archived, %ArchiveRun{status: :verified, row_count: 2}} = step_for(steps, ctx.org)
+      assert hot_count(ctx.org) == 1
+      assert archived_count(ctx.org) == 2
+    end
+
     test "to record a step without an actor the host's policy allows", ctx do
       for days <- [200, 150], do: event!(ctx.org, days)
       event!(ctx.org, 1)
@@ -247,6 +275,88 @@ defmodule AshEvents.Chain.RetentionTest do
       assert {:archived, %ArchiveRun{row_count: 1}} = step_for(steps, ctx.org)
 
       assert %{findings: [], checked: 5} = Chain.verify(EventLog, ctx.org)
+    end
+  end
+
+  describe "a backlog" do
+    test "over the batch is drained within the bound, and the remainder is reported", ctx do
+      for days <- [400, 350, 300, 250, 200, 150, 120], do: event!(ctx.org, days)
+      event!(ctx.org, 1)
+
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:ash_events_chain, :retention, :chain]])
+
+      {:ok, steps} =
+        Retention.archive(EventLog, [batch_size: 2, max_batches: 2] ++ ctx.as)
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      mine =
+        Enum.filter(
+          steps,
+          &match?({_, %ArchiveRun{chain_organization_id: org}} when org == ctx.org, &1)
+        )
+
+      # Two batches of two, three rows left for the next run.
+      assert [{:archived, first}, {:archived, last}] = mine
+      assert first.row_count == 2 and last.row_count == 2
+      assert last.from_sequence == first.to_sequence + 1
+      refute Map.has_key?(first.__metadata__, :backlog)
+      assert last.__metadata__.backlog == 3
+      assert is_nil(first.reason)
+      assert last.reason =~ "3 eligible row(s) remain"
+      assert Retention.backlog(mine) == 3
+
+      assert hot_count(ctx.org) == 4
+      assert archived_count(ctx.org) == 4
+
+      assert_received {[:ash_events_chain, :retention, :chain], ^ref,
+                       %{rows: 4, batches: 2, backlog: 3},
+                       %{kind: :archive, status: :verified, partition: partition}}
+
+      assert partition == ctx.org
+
+      # The next run carries on, and a drained chain reports nothing left.
+      {:ok, steps} = Retention.archive(EventLog, [batch_size: 3, max_batches: 5] ++ ctx.as)
+      assert {:archived, %ArchiveRun{row_count: 3} = run} = step_for(steps, ctx.org)
+      assert run.__metadata__.backlog == 0
+      assert is_nil(run.reason)
+      assert hot_count(ctx.org) == 1
+      assert %{findings: [], checked: 8} = Chain.verify(EventLog, ctx.org)
+    end
+
+    test "past the deadline, each chain still takes its first batch and no more", ctx do
+      other = Ash.UUID.generate()
+
+      for org <- [ctx.org, other] do
+        for days <- [300, 250, 200, 150], do: event!(org, days)
+        event!(org, 1)
+      end
+
+      {:ok, steps} =
+        Retention.archive(EventLog, [batch_size: 1, max_batches: 10, deadline_ms: 0] ++ ctx.as)
+
+      for org <- [ctx.org, other] do
+        assert [{:archived, %ArchiveRun{row_count: 1} = run}] =
+                 Enum.filter(
+                   steps,
+                   &match?({_, %ArchiveRun{chain_organization_id: o}} when o == org, &1)
+                 )
+
+        assert run.__metadata__.backlog == 3
+        assert hot_count(org) == 4
+      end
+    end
+
+    test "one batch per chain by default, as before", ctx do
+      for days <- [300, 250, 200], do: event!(ctx.org, days)
+      event!(ctx.org, 1)
+
+      {:ok, steps} = Retention.archive(EventLog, [batch_size: 2] ++ ctx.as)
+
+      assert {:archived, %ArchiveRun{row_count: 2} = run} = step_for(steps, ctx.org)
+      assert run.__metadata__.backlog == 1
+      assert Retention.backlog(:disabled) == 0
     end
   end
 
@@ -350,6 +460,9 @@ defmodule AshEvents.Chain.RetentionTest do
 
       assert archived[:archived] >= 1
       assert archived_count(ctx.org) == 2
+
+      assert {:ok, %{backlog: %{archive: 0, purge: 0}}} =
+               RetentionWorker.perform(%Oban.Job{args: %{}})
 
       assert {:ok, %{archived: again}} = RetentionWorker.perform(%Oban.Job{args: %{}})
       refute Map.has_key?(again, :archived)

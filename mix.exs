@@ -112,6 +112,8 @@ defmodule AshEvents.Chain.MixProject do
       {:ash_postgres, "~> 2.14"},
       {:ash_events, "~> 0.8"},
       {:spark, "~> 2.7"},
+      # Retention reports each chain it drains (`AshEvents.Chain.Retention`).
+      {:telemetry, "~> 1.0"},
       # Only `AshEvents.Chain.RetentionWorker` uses it, and only in the host that
       # defines a worker with it.
       {:oban, "~> 2.0", optional: true},
